@@ -18,7 +18,7 @@ bool Metal::photonScatter(
     photonMap.store(photon);
 
     // Russian Roulette 決定光子是否被吸收
-    double survivalProbability = albedo.length() / sqrt(3); // 歸一化
+    double survivalProbability = albedo.length() / sqrt(3);
     if (random_double(0.0, 1.0) > survivalProbability) {
         return false; // 光子被吸收
     }
@@ -38,6 +38,6 @@ vec3 Metal::directLighting(
     const vec3& normal, const vec3& lightDir, const vec3& lightColor, const vec3& viewDir
 ) const {
     vec3 reflected = vec3::reflect(-lightDir, normal).normalize();
-    double specularFactor = pow(std::max(0.0, vec3::dot(reflected, viewDir)), 50); // 50 為高光指數，可調整
+    double specularFactor = pow(std::max(0.0, vec3::dot(reflected, viewDir)), 50); // 50 為高光指數
     return albedo * lightColor * specularFactor;
 }

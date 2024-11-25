@@ -51,5 +51,5 @@ private:
         std::priority_queue<PhotonDist>& photonHeap) const;
 };
 
-#endif // PHOTONMAP_H
+#endif
 

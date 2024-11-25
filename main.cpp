@@ -83,7 +83,6 @@ void emitPhotons(PhotonMap& photonMap, const vec3& lightPosition, const vec3& li
                 // 獲取交點處的材質
                 Material* material = rec.material_ptr;
 
-                // 調用材質的 photonScatter 方法
                 if (!material->photonScatter(photon, rec, photonMap)) {
                     break; // 光子被吸收
                 }
@@ -223,8 +222,6 @@ int main(int argc, char* argv[]) {
     double fovAngle = 60.0; // Default field of view
     int width = 0, height = 0;
 
-    double apertureSize = 0.0;
-    double focus_dists = 60.0;
     const int numSamples = 32;
 
     std::vector<Material*> materials; // 用於管理材質指標
@@ -318,7 +315,6 @@ int main(int argc, char* argv[]) {
     }
 
     // Prepare image buffer
-    double focus_dist = focus_dists;
     std::vector<unsigned char> image(width * height * 3, 0); // Initialize to black
 
     // Compute camera basis vectors
