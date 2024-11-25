@@ -135,17 +135,26 @@ vec3 computeLighting(const vec3& point, const vec3& normal, const vec3& viewDir,
     // 間接光照（使用光子映射）
     vec3 indirect(0, 0, 0);
     const int maxPhotons = 50;
-    const double maxDist = 1.0;
     std::vector<const Photon*> photons;
-    photonMap.locatePhotons(point, maxDist, maxPhotons, photons);
+    photonMap.locatePhotons(point, maxPhotons, photons);
 
     if (!photons.empty()) {
+        double maxDist2 = 0.0;
         for (const Photon* photon : photons) {
-            double weight = std::max(0.0, vec3::dot(normal, -photon->direction));
-            indirect = indirect + photon->power * weight;
+            double dist2 = (photon->position - point).length_square();
+            if (dist2 > maxDist2) {
+                maxDist2 = dist2;
+            }
         }
-        indirect = indirect / (M_PI * maxDist * maxDist);
-        indirect *= 0.5;
+        
+        double area = M_PI * maxDist2;
+
+        vec3 flux(0, 0, 0);
+        for (const Photon* photon : photons) {
+            flux = flux + photon->power;
+        }
+
+        indirect = flux / area;
     }
 
     // 合并光照
@@ -216,7 +225,7 @@ int main(int argc, char* argv[]) {
 
     double apertureSize = 0.0;
     double focus_dists = 60.0;
-    const int numSamples = 16;
+    const int numSamples = 32;
 
     std::vector<Material*> materials; // 用於管理材質指標
     Material* currentMaterial = nullptr; // 當前材質指標
@@ -297,10 +306,10 @@ int main(int argc, char* argv[]) {
     PhotonMap photonMap;
 
     // 定義光源能量
-    vec3 lightPower(000.1, 000.1, 000.1);
+    vec3 lightPower(0.1, 0.1, 0.1);
 
     // 發射光子
-    emitPhotons(photonMap, lightPosition, lightPower, 100);
+    emitPhotons(photonMap, lightPosition, lightPower, 1000000);
 
     // Check resolution
     if (width == 0 || height == 0) {

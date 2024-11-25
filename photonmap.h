@@ -2,6 +2,8 @@
 #define PHOTONMAP_H
 
 #include <vector>
+#include <queue>
+#include <functional>
 #include "photon.h"
 #include "vec3.h"
 
@@ -15,6 +17,18 @@ struct KDTreeNode {
         : photon(p), left(nullptr), right(nullptr), plane(0) {}
 };
 
+struct PhotonDist {
+    const Photon* photon;
+    double dist2;
+
+    PhotonDist(const Photon* p, double d) : photon(p), dist2(d) {}
+
+    // 定義比較運算子，建立最大堆
+    bool operator<(const PhotonDist& other) const {
+        return dist2 < other.dist2;
+    }
+};
+
 class PhotonMap {
 public:
     KDTreeNode* root;
@@ -24,16 +38,17 @@ public:
 
     void store(const Photon& photon); // 儲存光子
     void balance();                   // 平衡kd-tree
-    void locatePhotons(const vec3& position, double maxDist, int maxPhotons, std::vector<const Photon*>& foundPhotons) const; // 查詢光子
+    void locatePhotons(const vec3& position, int maxPhotons,
+        std::vector<const Photon*>& foundPhotons) const; // 查詢光子
 
 private:
     std::vector<Photon> photons;
 
     KDTreeNode* buildKDTree(std::vector<Photon>& photons, int start, int end);
     void deleteKDTree(KDTreeNode* node);
-    void locatePhotonsRecursive(const KDTreeNode* node, const vec3& position,
-        double maxDist2, int maxPhotons,
-        std::vector<const Photon*>& foundPhotons) const;
+    void locatePhotonsRecursive(const KDTreeNode* node,
+        const vec3& position, int maxPhotons,
+        std::priority_queue<PhotonDist>& photonHeap) const;
 };
 
 #endif // PHOTONMAP_H

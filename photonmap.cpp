@@ -69,47 +69,52 @@ KDTreeNode* PhotonMap::buildKDTree(std::vector<Photon>& photons,
     return node;
 }
 
-void PhotonMap::locatePhotons(const vec3& position, double maxDist,
-    int maxPhotons,
+void PhotonMap::locatePhotons(const vec3& position, int maxPhotons,
     std::vector<const Photon*>& foundPhotons) const {
+    
+    std::priority_queue<PhotonDist> photonHeap;
+
+    // 呼叫遞迴函數
+    locatePhotonsRecursive(root, position, maxPhotons, photonHeap);
+
+    // 將結果從堆中取出
     foundPhotons.clear();
-    locatePhotonsRecursive(root, position, maxDist * maxDist, maxPhotons,
-        foundPhotons);
+    while (!photonHeap.empty()) {
+        foundPhotons.push_back(photonHeap.top().photon);
+        photonHeap.pop();
+    }
 }
 
 void PhotonMap::locatePhotonsRecursive(const KDTreeNode* node,
-    const vec3& position, double maxDist2,
-    int maxPhotons,
-    std::vector<const Photon*>& foundPhotons) const {
+    const vec3& position, int maxPhotons,
+    std::priority_queue<PhotonDist>& photonHeap) const {
     if (!node) return;
 
     // 計算當前節點與查詢點的距離平方
     double dist2 = (node->photon.position - position).length_square();
-    if (dist2 < maxDist2) {
-        if (foundPhotons.size() < maxPhotons) {
-            foundPhotons.push_back(&node->photon);
-        }
+
+    // 更新最大堆
+    if (photonHeap.size() < maxPhotons) {
+        photonHeap.emplace(&node->photon, dist2);
+    }
+    else if (dist2 < photonHeap.top().dist2) {
+        photonHeap.pop();
+        photonHeap.emplace(&node->photon, dist2);
     }
 
     // 遞迴遍歷子樹
     int axis = node->plane;
     double diff = position[axis] - node->photon.position[axis];
 
-    if (diff < 0) {
-        locatePhotonsRecursive(node->left, position, maxDist2,
-            maxPhotons, foundPhotons);
-        if (diff * diff < maxDist2) {
-            locatePhotonsRecursive(node->right, position, maxDist2,
-                maxPhotons, foundPhotons);
-        }
-    }
-    else {
-        locatePhotonsRecursive(node->right, position, maxDist2,
-            maxPhotons, foundPhotons);
-        if (diff * diff < maxDist2) {
-            locatePhotonsRecursive(node->left, position, maxDist2,
-                maxPhotons, foundPhotons);
-        }
+    KDTreeNode* nearChild = diff < 0 ? node->left : node->right;
+    KDTreeNode* farChild = diff < 0 ? node->right : node->left;
+
+    // 先遍歷與查詢點較近的一側
+    locatePhotonsRecursive(nearChild, position, maxPhotons, photonHeap);
+
+    // 判斷是否需要遍歷另一側
+    if (photonHeap.size() < maxPhotons || diff * diff < photonHeap.top().dist2) {
+        locatePhotonsRecursive(farChild, position, maxPhotons, photonHeap);
     }
 }
 
