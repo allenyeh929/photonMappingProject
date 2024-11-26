@@ -93,7 +93,7 @@ void PhotonMap::locatePhotonsRecursive(const KDTreeNode* node,
     // 計算當前節點與查詢點的距離平方
     double dist2 = (node->photon.position - position).length_square();
 
-    // 更新最大堆
+    // 更新priority_queue
     if (photonHeap.size() < maxPhotons) {
         photonHeap.emplace(&node->photon, dist2);
     }

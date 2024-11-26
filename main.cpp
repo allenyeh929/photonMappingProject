@@ -138,6 +138,7 @@ vec3 computeLighting(const vec3& point, const vec3& normal, const vec3& viewDir,
     photonMap.locatePhotons(point, maxPhotons, photons);
 
     if (!photons.empty()) {
+        //std::cout << "ok" << std::endl;
         double maxDist2 = 0.0;
         for (const Photon* photon : photons) {
             double dist2 = (photon->position - point).length_square();
@@ -156,7 +157,7 @@ vec3 computeLighting(const vec3& point, const vec3& normal, const vec3& viewDir,
         indirect = flux / area;
     }
 
-    // 合并光照
+    // 合併光照
     vec3 color = ambient + diffuse + specular + indirect;
 
     color = color / (color + vec3(1.0, 1.0, 1.0));
@@ -191,6 +192,7 @@ vec3 trace(const Ray& ray, int depth, const PhotonMap& photonMap) {
         if (rec.material_ptr->scatter(ray, rec, attenuation, scattered)) {
             vec3 indirectLighting = trace(scattered, depth + 1, photonMap);
             vec3 directLighting = computeLighting(rec.point, rec.normal, -ray.direction, rec.material_ptr, photonMap);
+
             return emitted + attenuation * 0.8 * (indirectLighting + directLighting);
         }
         else {
