@@ -23,7 +23,7 @@ struct PhotonDist {
 
     PhotonDist(const Photon* p, double d) : photon(p), dist2(d) {}
 
-    // 定義比較運算子，建立最大堆
+    // 定義比較運算子，建立priority_queue
     bool operator<(const PhotonDist& other) const {
         return dist2 < other.dist2;
     }
