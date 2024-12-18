@@ -15,7 +15,7 @@ public:
     ) const override;
 
     virtual bool photonScatter(
-        Photon& photon, const HitRecord& rec, PhotonMap& photonMap
+        Photon& photon, const HitRecord& rec, vec3& attenuation
     ) const override;
 
     virtual vec3 directLighting(

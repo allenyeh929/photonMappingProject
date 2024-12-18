@@ -7,7 +7,7 @@
 #include "hit_record.h"
 #include "interval.h"
 #include "photon.h"
-#include "photonmap.h"
+#include "hit_point.h"
 
 // 定義 Material 類別（基類）
 class Material {
@@ -24,7 +24,7 @@ public:
     }
 
     virtual bool photonScatter(
-        Photon& photon, const HitRecord& rec, PhotonMap& photonMap
+        Photon& photon, const HitRecord& rec, vec3& attenuation
     ) const = 0;
 
     virtual vec3 directLighting(

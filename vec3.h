@@ -53,6 +53,8 @@ public:
     static vec3 max(const vec3& a, const vec3& b);
 
     bool is_valid() const;
+
+    void print();
 };
 
 inline vec3 operator*(double t, const vec3& v) {

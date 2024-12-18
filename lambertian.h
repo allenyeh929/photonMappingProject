@@ -7,12 +7,16 @@ class Lambertian : public Material {
 public:
     Lambertian(const vec3& albedo) : albedo(albedo) {}
 
+    vec3 getAlbedo() const {
+        return albedo;
+    }
+
     virtual bool scatter(
         const Ray& r_in, const HitRecord& rec, vec3& attenuation, Ray& scattered
     ) const override;
 
     virtual bool photonScatter(
-        Photon& photon, const HitRecord& rec, PhotonMap& photonMap
+        Photon& photon, const HitRecord& rec, vec3& attenuation
     ) const override;
 
     virtual vec3 directLighting(

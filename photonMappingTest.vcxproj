@@ -104,6 +104,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <OpenMPSupport>true</OpenMPSupport>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -140,6 +141,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dielectric.h" />
+    <ClInclude Include="hash_grid.h" />
+    <ClInclude Include="hit_point.h" />
     <ClInclude Include="hit_record.h" />
     <ClInclude Include="interval.h" />
     <ClInclude Include="lambertian.h" />

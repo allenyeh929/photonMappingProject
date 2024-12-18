@@ -6,6 +6,9 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <random>
+#include <unordered_map>
+#include <ctime>
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -26,9 +29,13 @@
 #include "photonmap.h"
 #include "hit_record.h"
 #include "interval.h"
+#include "hit_point.h"
+#include "hash_grid.h"
 
 const double EPSILON = 1e-4;
 const int maxDepth = 5;
+const double alpha = 0.7;          // 半徑縮小因子
+double maxRadius = 0;
 
 Material* currentMaterial = nullptr;
 
@@ -62,14 +69,24 @@ bool findClosestIntersection(const Ray& ray, HitRecord& closest_rec, double t_mi
     return hit_anything;
 }
 
+void initializeHitPoints(std::vector<HitPoint>& hitPoints) {
+    for (auto& hp : hitPoints) {
+        hp.radius2 = initialRadius * initialRadius;
+        hp.flux = vec3(0, 0, 0);
+        hp.photonCount = 0;
+    }
+}
 
-void emitPhotons(PhotonMap& photonMap, const vec3& lightPosition, const vec3& lightPower, int numPhotons) {
-    for (int i = 0; i < numPhotons; ++i) {
+void emitPhotonsAndUpdateHitPoints(const vec3& lightPosition, const vec3& lightPower,
+    int photonsPerIteration, std::vector<HitPoint>& hitPoints,
+    HashGrid& hashGrid) {
+
+    for (int i = 0; i < photonsPerIteration; ++i) {
         // 生成隨機方向
         vec3 dir = vec3::random_in_unit_sphere().normalize();
 
         // 初始光子
-        Photon photon(lightPosition, dir, lightPower / numPhotons);
+        Photon photon(lightPosition, dir, vec3(20.0, 20.0, 20.0));
 
         // 追蹤光子
         Ray photonRay(photon.position, photon.direction);
@@ -79,129 +96,160 @@ void emitPhotons(PhotonMap& photonMap, const vec3& lightPosition, const vec3& li
 
         while (depth < maxPhotonDepth) {
             HitRecord rec;
-            if (findClosestIntersection(photonRay, rec, EPSILON, std::numeric_limits<double>::max())) {
-                // 獲取交點處的材質
-                Material* material = rec.material_ptr;
 
-                if (!material->photonScatter(photon, rec, photonMap)) {
-                    break; // 光子被吸收
+            if (findClosestIntersection(photonRay, rec, EPSILON, std::numeric_limits<double>::max())) {
+
+                if (rec.material_ptr == nullptr) {
+                    std::cerr << "Warning: Material pointer is NULL!" << std::endl;
+                    return;
                 }
 
-                // 更新光子的射線
-                photonRay = Ray(photon.position + photon.direction * EPSILON, photon.direction);
+                Lambertian* lambertMat = dynamic_cast<Lambertian*>(rec.material_ptr);
+                if (lambertMat != nullptr) {
+                    // 查找附近的命中點
+                    std::vector<size_t> nearbyHitPoints;
+                    double queryRadius2 = initialRadius * initialRadius;
+                    maxRadius = queryRadius2;
+                    hashGrid.query(rec.point, hitPoints[0].radius2, nearbyHitPoints);
 
-                depth++;
+                    for (size_t idx : nearbyHitPoints) {
+                        HitPoint& hp = hitPoints[idx];
+                        double dist2 = (hp.position - rec.point).length_square();
+                        if (dist2 <= hp.radius2) {
+                            // 累積光通量
+                            double M = hp.photonCount + alpha;
+                            //double newRadius2 = hp.radius2 * (M / (M + 1.0));
+                            //vec3 correctedNormal = vec3::dot(photon.direction, hp.normal) < 0 ? hp.normal : -hp.normal;
+                            double cosTerm = vec3::dot(photon.direction, hp.normal) < 0 ? -vec3::dot(photon.direction, hp.normal) : vec3::dot(photon.direction, hp.normal);
+                            vec3 phi = hp.flux + hp.throughput * photon.power * cosTerm;
+
+                            hp.photonCount += 1;
+                            //hp.radius2 = newRadius2;
+                            hp.flux = phi;
+                            //hp.flux.print();
+                        }
+                    }
+                    break;
+                }
+
+                // 散射光子
+                vec3 attenuation;
+                if (rec.material_ptr->photonScatter(photon, rec, attenuation)) {
+                    photon.power = photon.power * attenuation;
+                    //photon.power.print();
+                    photonRay = Ray(rec.point + photon.direction * EPSILON, photon.direction);
+                    depth++;
+                }
+                else {
+                    break; // 光子被吸收
+                }
             }
             else {
                 break; // 光子射向無窮遠
             }
         }
     }
-
-    photonMap.balance(); // 平衡kd-tree
 }
 
-bool isInShadow(const vec3& point, const vec3& lightDir) {
-    Ray shadowRay(point + lightDir * EPSILON, lightDir);
-    double lightDistance = (lightPosition - point).length();
-
-    HitRecord rec;
-
-    // 檢查與場景中所有物體的交點
-    if (findClosestIntersection(shadowRay, rec, EPSILON, lightDistance)) {
-        return true; // 有遮擋
-    }
-
-    return false; // 無遮擋
-}
-
-vec3 computeLighting(const vec3& point, const vec3& normal, const vec3& viewDir, const Material* material, const PhotonMap& photonMap) {
-    // Ambient component
-    vec3 ambient = vec3(0, 0, 0);
-
-    // 直接光照
-    vec3 lightDir = (lightPosition - point).normalize();
-    vec3 diffuse(0, 0, 0);
-    vec3 specular(0, 0, 0);
-
-    vec3 lightColor(1, 1, 1);
-    // 檢查陰影（判斷光線是否被遮擋）
-    if (!isInShadow(point, lightDir)) {
-        // 調用材質的 directLighting 函數
-        diffuse = material->directLighting(normal, lightDir, lightColor, viewDir);
-    }
-
-    // 間接光照（使用光子映射）
-    vec3 indirect(0, 0, 0);
-    const int maxPhotons = 50;
-    std::vector<const Photon*> photons;
-    photonMap.locatePhotons(point, maxPhotons, photons);
-
-    if (!photons.empty()) {
-        //std::cout << "ok" << std::endl;
-        double maxDist2 = 0.0;
-        for (const Photon* photon : photons) {
-            double dist2 = (photon->position - point).length_square();
-            if (dist2 > maxDist2) {
-                maxDist2 = dist2;
-            }
-        }
-        
-        double area = M_PI * maxDist2;
-
-        vec3 flux(0, 0, 0);
-        for (const Photon* photon : photons) {
-            flux = flux + photon->power;
-        }
-
-        indirect = flux / area;
-    }
-
-    // 合併光照
-    vec3 color = ambient + diffuse + specular + indirect;
-
-    color = color / (color + vec3(1.0, 1.0, 1.0));
-
-    // 伽馬校正
-    color.x = pow(color.x, 1.0 / 2.2);
-    color.y = pow(color.y, 1.0 / 2.2);
-    color.z = pow(color.z, 1.0 / 2.2);
-
-    /*
-    // 限制顏色值在 [0,1] 範圍內，防止過曝
-    color.x = std::min(1.0, std::max(0.0, color.x));
-    color.y = std::min(1.0, std::max(0.0, color.y));
-    color.z = std::min(1.0, std::max(0.0, color.z));
-    */
-
-    // 返回計算後的顏色
-    return color;
-}
-
-vec3 trace(const Ray& ray, int depth, const PhotonMap& photonMap) {
-    if (depth > maxDepth) {
-        return vec3(0, 0, 0); // Black
-    }
+void traceEyeRay(const Ray& ray, int depth, vec3 throughput, int pixelIndex, std::vector<HitPoint>& hitPoints) {
+    if (depth > maxDepth) return;
 
     HitRecord rec;
     if (findClosestIntersection(ray, rec, 0.001, std::numeric_limits<double>::max())) {
-        Ray scattered;
-        vec3 attenuation;
-        vec3 emitted = rec.material_ptr->emitted(ray, rec);
 
-        if (rec.material_ptr->scatter(ray, rec, attenuation, scattered)) {
-            vec3 indirectLighting = trace(scattered, depth + 1, photonMap);
-            vec3 directLighting = computeLighting(rec.point, rec.normal, -ray.direction, rec.material_ptr, photonMap);
-
-            return emitted + attenuation * 0.8 * (indirectLighting + directLighting);
+        if (rec.material_ptr == nullptr) {
+            std::cerr << "Warning: Material pointer is NULL!" << std::endl;
+            return;
         }
-        else {
-            return emitted;
+
+        Lambertian* lambertMat = dynamic_cast<Lambertian*>(rec.material_ptr);
+        if (lambertMat != nullptr) {
+            HitPoint hp;
+            hp.position = rec.point;
+            hp.normal = rec.normal;
+            hp.throughput = throughput * lambertMat->getAlbedo();
+            hp.radius2 = initialRadius * initialRadius;
+            hp.flux = vec3(0.0, 0.0, 0.0);
+            hp.photonCount = 0;
+            hp.pixelIndex = pixelIndex;
+            hitPoints.push_back(hp);
+
+            return;
+        }
+        
+
+        // 間接照明
+        vec3 attenuation;
+        Ray scattered;
+        if (rec.material_ptr->scatter(ray, rec, attenuation, scattered)) {
+            traceEyeRay(scattered, depth + 1, throughput * attenuation, pixelIndex, hitPoints);
         }
     }
-    else {
-        // 背景色
-        return vec3(0, 0, 0);
+}
+
+Ray computeCameraRay(int x, int y, int width, int height, double fov, const vec3& eyePosition, const vec3& viewDirection, const vec3& upVector) {
+
+    vec3 w = -viewDirection;
+    vec3 u = upVector.cross(w).normalize();
+    vec3 v = w.cross(u);
+
+    double aspectRatio = static_cast<double>(width) / height;
+    double angle = tan(fov * 0.5 * M_PI / 180.0);
+
+    // 將像素座標轉換為NDC
+    double ndcX = (x + 0.5) / width;
+    double ndcY = (y + 0.5) / height;
+
+    // 將NDC轉換為螢幕空間座標
+    double screenX = (2 * ndcX - 1) * aspectRatio * angle;
+    double screenY = (1 - 2 * ndcY) * angle;
+
+    vec3 rayDirection = (u * screenX + v * screenY - w).normalize();
+
+    return Ray(eyePosition, rayDirection);
+}
+
+// 追蹤視線光線並存儲命中點
+void traceEyeRays(const vec3& eyePosition, const vec3& viewDirection, const vec3& upVector,
+    double fov, int width, int height, std::vector<HitPoint>& hitPoints,
+    std::mt19937& rng, std::uniform_real_distribution<double>& dist) {
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            // 計算像素對應的視線光線
+            Ray ray = computeCameraRay(x, y, width, height, fov, eyePosition, viewDirection, upVector);
+
+            // 追蹤視線光線
+            int pixelIndex = y * width + x;
+            traceEyeRay(ray, 0, vec3(1.0, 1.0, 1.0), pixelIndex, hitPoints);
+        }
+    }
+}
+
+// 生成最終影像
+void generateFinalImage(std::vector<HitPoint>& hitPoints, std::vector<vec3>& image,
+    int photonsPerIteration, int numIterations) {
+    for (const auto& hp : hitPoints) {
+        if (hp.photonCount > 0) {
+            // 計算輻射估計
+            vec3 radiance = hp.flux / (M_PI * hp.radius2 * photonsPerIteration * numIterations);
+
+            //radiance.print();
+            /*
+            // 將radiance限制在 [0,1] 範圍內
+            radiance.x = std::max(0.0, std::min(1.0, radiance.x));
+            radiance.y = std::max(0.0, std::min(1.0, radiance.y));
+            radiance.z = std::max(0.0, std::min(1.0, radiance.z));
+
+            // gamma校正
+            radiance.x = pow(radiance.x, 1.0 / 2.2);
+            radiance.y = pow(radiance.y, 1.0 / 2.2);
+            radiance.z = pow(radiance.z, 1.0 / 2.2);
+            */
+
+            image[hp.pixelIndex] = image[hp.pixelIndex] + radiance;
+            //image[hp.pixelIndex].print();
+        }
     }
 }
 
@@ -224,7 +272,7 @@ int main(int argc, char* argv[]) {
     double fovAngle = 60.0; // Default field of view
     int width = 0, height = 0;
 
-    const int numSamples = 32;
+    const int numSamples = 16;
 
     std::vector<Material*> materials; // 用於管理材質指標
     Material* currentMaterial = nullptr; // 當前材質指標
@@ -301,14 +349,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // 定義光子映射
-    PhotonMap photonMap;
-
     // 定義光源能量
-    vec3 lightPower(0.1, 0.1, 0.1);
-
-    // 發射光子
-    emitPhotons(photonMap, lightPosition, lightPower, 1000000);
+    vec3 lightPower(30.0, 30.0, 30.0);
 
     // Check resolution
     if (width == 0 || height == 0) {
@@ -316,62 +358,100 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Prepare image buffer
-    std::vector<unsigned char> image(width * height * 3, 0); // Initialize to black
+    // 初始化命中點和影像緩衝區
+    std::vector<HitPoint> hitPoints;
+    std::vector<vec3> image(width* height, vec3(0, 0, 0));
 
-    // Compute camera basis vectors
-    double aspectRatio = static_cast<double>(width) / height;
-    vec3 right = upVector.cross(viewDirection).normalize();
-    vec3 up = viewDirection.cross(right).normalize();
+    // 初始化命中點
+    initializeHitPoints(hitPoints);
 
-    // Viewing distance (arbitrary)
-    double d = 1.0;
+    // 隨機數生成器
+    std::mt19937 rng(static_cast<unsigned int>(time(NULL)));
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
 
-    // Compute image plane dimensions
-    double fovRadians = fovAngle * M_PI / 180.0;
-    double halfWidth = tan(fovRadians / 2.0);
-    double halfHeight = halfWidth / aspectRatio;
+    // 追蹤視線光線並存儲命中點
+    traceEyeRays(eyePosition, viewDirection, upVector, fovAngle, width, height, hitPoints, rng, dist);
 
-    // For each pixel
-    for (int j = 0; j < height; ++j) {
-        for (int i = 0; i < width; ++i) {
-            vec3 color = vec3(0, 0, 0);
+    // 建立hash grid
+    HashGrid hashGrid(initialRadius);
 
-            for (int s = 0; s < numSamples; ++s) {
-                // Compute u and v
-                double u = ((i + 0.5) / width - 0.5) * 2 * halfWidth;
-                double v = (0.5 - (j + 0.5) / height) * 2 * halfHeight;
+    
 
-                // Compute ray direction
-                vec3 rayDirection = (viewDirection * d + right * u + up * v).normalize();
+    // 定義迭代參數
+    const int numIterations = 100;              // 迭代次數
+    const int photonsPerIteration = 100000;     // 每次迭代發射的光子數
+    
 
-                Ray ray(eyePosition, rayDirection);
+    // 迭代 PPM
+    for (int iter = 0; iter < numIterations; ++iter) {
+        std::cout << "Iteration: " << iter + 1 << "/" << numIterations << std::endl;
 
-                // Trace the ray
-                color = color + trace(ray, 0, photonMap);
+        hashGrid.clear();
+
+        // 插入命中點到hash grid
+        for (size_t i = 0; i < hitPoints.size(); ++i) {
+            if (hitPoints[i].pixelIndex != -1) {
+                hashGrid.insert(hitPoints[i], i);
             }
+        }
 
-            // Average the color samples
-            color = color * (1.0 / numSamples);
+        /*
+        int t = 0;
+        for (auto& hp : hitPoints) {
+            std::cout << "radius_1: " << hp.radius2 << std::endl;
+            std::cout << "Photon count_1: " << hp.photonCount << std::endl;
+            t++;
+            if (t >= 10) {
+                break;
+            }  
+        }
+        */
+        
+        // 發射光子並更新命中點的輻射估計
+        emitPhotonsAndUpdateHitPoints(lightPosition, lightPower, photonsPerIteration, hitPoints, hashGrid);
 
-            // Convert color to [0,255] and write to image
-            int index = (j * width + i) * 3;
-            if (index + 2 >= image.size()) {
-                std::cerr << "Pixel index out of range: " << index << std::endl;
-                return 1;
+        /*
+        t = 0;
+        for (auto& hp : hitPoints) {
+            std::cout << "radius_2: " << hp.radius2 << std::endl;
+            std::cout << "Photon count_2: " << hp.photonCount << std::endl;
+            hp.flux.print();
+            t++;
+            if (t >= 10) {
+                break;
             }
+        }
+        */
 
-            image[index] = static_cast<unsigned char>(std::min(color.x * 255.0, 255.0));
-            image[index + 1] = static_cast<unsigned char>(std::min(color.y * 255.0, 255.0));
-            image[index + 2] = static_cast<unsigned char>(std::min(color.z * 255.0, 255.0));
+        // 縮小命中點的搜索半徑
+        for (auto& hp : hitPoints) {
+            if (hp.photonCount > 0) {
+                hp.radius2 *= (static_cast<double>(hp.photonCount) + alpha) / (static_cast<double>(hp.photonCount) + 1.0);
+                hp.flux *= (static_cast<double>(hp.photonCount) + alpha) / (static_cast<double>(hp.photonCount) + 1.0);
+
+                if (hp.radius2 > maxRadius) {
+                    maxRadius = hp.radius2;
+                }
+            }
         }
     }
 
-    // Save the image as a PPM file
+    // 生成最終影像
+    generateFinalImage(hitPoints, image, photonsPerIteration, numIterations);
+
+    // 保存影像為 PPM 檔案
     std::string filename = "output.ppm";
     std::ofstream ppmFile(filename, std::ios::binary);
     ppmFile << "P6\n" << width << " " << height << "\n255\n";
-    ppmFile.write(reinterpret_cast<char*>(image.data()), image.size());
+    for (const auto& color : image) {
+        unsigned char r = static_cast<unsigned char>(std::min(color.x * 255.0, 255.0));
+        unsigned char g = static_cast<unsigned char>(std::min(color.y * 255.0, 255.0));
+        unsigned char b = static_cast<unsigned char>(std::min(color.z * 255.0, 255.0));
+        ppmFile.write(reinterpret_cast<char*>(&r), 1);
+        ppmFile.write(reinterpret_cast<char*>(&g), 1);
+        ppmFile.write(reinterpret_cast<char*>(&b), 1);
+    }
+
     ppmFile.close();    
 
     std::cout << "Image has been saved to " << filename << std::endl;
@@ -383,3 +463,4 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+

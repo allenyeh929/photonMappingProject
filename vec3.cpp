@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <iostream>
 
 vec3::vec3() : x(0), y(0), z(0) {}
 
@@ -170,4 +171,8 @@ vec3 vec3::max(const vec3& a, const vec3& b) {
 
 bool vec3::is_valid() const {
     return std::isfinite(x) && std::isfinite(y) && std::isfinite(z);
+}
+
+void vec3::print() {
+    std::cout << "(" << x << ", " << y << ", " << z << ")" << std::endl;
 }

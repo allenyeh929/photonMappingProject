@@ -117,4 +117,3 @@ void PhotonMap::locatePhotonsRecursive(const KDTreeNode* node,
         locatePhotonsRecursive(farChild, position, maxPhotons, photonHeap);
     }
 }
-

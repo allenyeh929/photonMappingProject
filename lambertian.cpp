@@ -15,12 +15,8 @@ bool Lambertian::scatter(
 }
 
 bool Lambertian::photonScatter(
-    Photon& photon, const HitRecord& rec, PhotonMap& photonMap
+    Photon& photon, const HitRecord& rec, vec3& attenuation
 ) const {
-    // 儲存光子
-    photon.position = rec.point;
-    photonMap.store(photon);
-
     double survivalProbability = albedo.length() / sqrt(3);
     if (random_double(0.0, 1.0) > survivalProbability) {
         return false; // 光子被吸收
@@ -31,6 +27,9 @@ bool Lambertian::photonScatter(
 
     // 漫反射新的方向
     photon.direction = vec3::random_in_hemisphere(rec.normal).normalize();
+
+    // 設置衰減
+    attenuation = albedo;
 
     return true;
 }

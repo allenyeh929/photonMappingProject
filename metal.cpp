@@ -11,12 +11,9 @@ bool Metal::scatter(
 }
 
 bool Metal::photonScatter(
-    Photon& photon, const HitRecord& rec, PhotonMap& photonMap
-) const {
-    // 儲存光子
-    photon.position = rec.point;
-    photonMap.store(photon);
+    Photon& photon, const HitRecord& rec, vec3& attenuation
 
+) const {
     // Russian Roulette 決定光子是否被吸收
     double survivalProbability = albedo.length() / sqrt(3);
     if (random_double(0.0, 1.0) > survivalProbability) {
